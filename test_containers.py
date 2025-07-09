@@ -13,7 +13,7 @@ from containers import ensure_container_image
     "ubuntu@digest@another",
     "registry.example.com/myapp:v1.0:",
 ])
-def test_invalid_image_references(image_ref):
+def test_ensure_container_image_when_invalid_image_references_should_raise(image_ref):
     with pytest.raises(ValueError, match="Invalid container image reference"):
         ensure_container_image(image_ref)
 
@@ -28,5 +28,5 @@ def test_invalid_image_references(image_ref):
     "registry.example.com/myapp:v1.0",
     "ubuntu:20.04@sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
 ])
-def test_valid_image_references(image_ref):
+def test_ensure_container_image_when_valid_image_references_should_return_them(image_ref):
     assert ensure_container_image(image_ref) == image_ref
