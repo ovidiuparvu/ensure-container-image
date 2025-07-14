@@ -1,37 +1,72 @@
 import re
 
-
 # Container image reference format specification:
 # https://pkg.go.dev/github.com/distribution/reference#pkg-overview
 #
-# Hosts specified as IP addresses are not supported in this implementation
-LOWER_ALPHA_NUMERIC_REGEX = r'[a-z0-9]'
-ALPHA_NUMERIC_REGEX = r'[a-zA-Z0-9]'
-SEPARATOR_REGEX = r'[_.]|__|[-]*'
+# Hosts specified as IP addresses are not supported (in the HOST_REGEX below)
+DOMAIN_COMPONENT_REGEX = r"(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])"
+DOMAIN_NAME_REGEX = rf"{DOMAIN_COMPONENT_REGEX}(?:[.]{DOMAIN_COMPONENT_REGEX})*"
+HOST_REGEX = DOMAIN_NAME_REGEX
+PORT_NUMBER_REGEX = r"[0-9]+"
+DOMAIN_REGEX = rf"{HOST_REGEX}(?::{PORT_NUMBER_REGEX})?"
 
-DOMAIN_COMPONENT_REGEX = fr'(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])'
-DOMAIN_NAME_REGEX = fr'{DOMAIN_COMPONENT_REGEX}(?:\.{DOMAIN_COMPONENT_REGEX})*'
-HOST_REGEX = fr'{DOMAIN_NAME_REGEX}'
-PORT_NUMBER_REGEX = r'[0-9]+'
-DOMAIN_REGEX = fr'{HOST_REGEX}(?::{PORT_NUMBER_REGEX})?'
+SEPARATOR_REGEX = r"[_.]|__|[-]*"
+ALPHA_NUMERIC_REGEX = r"[a-z0-9]+"
+PATH_COMPONENT_REGEX = (
+    rf"{ALPHA_NUMERIC_REGEX}(?:{SEPARATOR_REGEX}{ALPHA_NUMERIC_REGEX})*"
+)
+REMOTE_NAME_REGEX = rf"{PATH_COMPONENT_REGEX}(?:[/]{PATH_COMPONENT_REGEX})*"
+NAME_REGEX = rf"(?:{DOMAIN_REGEX}/)?{REMOTE_NAME_REGEX}"
+NAME_PATTERN = re.compile(rf"^{NAME_REGEX}$")
 
-PATH_COMPONENT_REGEX = fr'{ALPHA_NUMERIC_REGEX}+(?:{SEPARATOR_REGEX}{ALPHA_NUMERIC_REGEX}+)*'
-REMOTE_NAME_REGEX = fr'{PATH_COMPONENT_REGEX}(?:/{PATH_COMPONENT_REGEX})*'
-NAME_REGEX = fr'(?:{DOMAIN_REGEX}/)?{REMOTE_NAME_REGEX}'
+TAG_REGEX = r"[\w][\w.-]{0,127}"
+TAG_PATTERN = re.compile(rf"^{TAG_REGEX}$")
 
-TAG_REGEX = r'[\w][\w.-]{0,127}'
+NAME_TAG_REGEX = rf"{NAME_REGEX}(?::{TAG_REGEX})?"
+NAME_TAG_PATTERN = re.compile(rf"^{NAME_TAG_REGEX}$")
 
-DIGEST_HEX_REGEX = r'(?:[a-fA-F0-9]{32,})'
-DIGEST_ALGORITHM_COMPONENT_REGEX = r'(?:[A-Za-z][A-Za-z0-9]*)'
-DIGEST_ALGORITHM_SEPARATOR_REGEX = r'[+.-_]'
-DIGEST_ALGORITHM_REGEX = fr'{DIGEST_ALGORITHM_COMPONENT_REGEX}(?:{DIGEST_ALGORITHM_SEPARATOR_REGEX}{DIGEST_ALGORITHM_COMPONENT_REGEX})*'
-DIGEST_REGEX = fr'{DIGEST_ALGORITHM_REGEX}:{DIGEST_HEX_REGEX}'
+DIGEST_HEX_REGEX = r"(?:[a-fA-F0-9]{32,})"
+DIGEST_ALGORITHM_COMPONENT_REGEX = r"(?:[A-Za-z][A-Za-z0-9]*)"
+DIGEST_ALGORITHM_SEPARATOR_REGEX = r"[+.-_]"
+DIGEST_ALGORITHM_REGEX = rf"{DIGEST_ALGORITHM_COMPONENT_REGEX}(?:{DIGEST_ALGORITHM_SEPARATOR_REGEX}{DIGEST_ALGORITHM_COMPONENT_REGEX})*"
+DIGEST_REGEX = rf"{DIGEST_ALGORITHM_REGEX}:{DIGEST_HEX_REGEX}"
+DIGEST_PATTERN = re.compile(rf"^{DIGEST_REGEX}$")
 
-CONTAINER_IMAGE_REFERENCE_PATTERN = re.compile(
-    fr'^{NAME_REGEX}(?::{TAG_REGEX})?(?:@{DIGEST_REGEX})?$'
+CONTAINER_IMAGE_REFERENCE_REGEX = (
+    rf"^{NAME_REGEX}(?::{TAG_REGEX})?(?:@{DIGEST_REGEX})?$"
 )
 
+
 def ensure_container_image(image: str) -> str:
-    if not CONTAINER_IMAGE_REFERENCE_PATTERN.match(image):
-        raise ValueError(f"Invalid container image reference: {image}")
+    # We do not use CONTAINER_IMAGE_REFERENCE_REGEX directly here for execution time performance reasons.
+    # Splitting the input image string into its constituent parts reduces the worst case execution time of the
+    # function because the number of wildcards (combinations) considered for each regular expression evaluation
+    # is smaller.
+    digest_separator_index = image.rfind("@")
+    if digest_separator_index >= 0:
+        digest = image[digest_separator_index + 1 :]
+        if not DIGEST_PATTERN.match(digest):
+            raise ValueError(
+                f"Invalid container image digest: {digest} ({image=}, {DIGEST_REGEX=})"
+            )
+
+    tag_end_index = (
+        digest_separator_index if digest_separator_index >= 0 else len(image)
+    )
+    tag_separator_index = image.rfind(":", 0, tag_end_index)
+    tag = image[tag_separator_index + 1 : tag_end_index]
+    # Ensure that a separator from the domain is not considered as a tag separator
+    tag_separator_index = tag_separator_index if "/" not in tag else -1
+    if tag_separator_index >= 0:
+        if not TAG_PATTERN.match(tag):
+            raise ValueError(
+                f"Invalid container image tag: {tag} ({image=}, {TAG_REGEX=})"
+            )
+
+    name_end_index = tag_separator_index if tag_separator_index >= 0 else tag_end_index
+    name = image[:name_end_index]
+    if not NAME_PATTERN.match(name):
+        raise ValueError(
+            f"Invalid container image name: {name} ({image=}, {NAME_REGEX=})"
+        )
     return image
