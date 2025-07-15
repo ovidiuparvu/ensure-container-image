@@ -55,7 +55,7 @@ def ensure_container_image(image: str) -> str:
     )
     tag_separator_index = image.rfind(":", 0, tag_end_index)
     tag = image[tag_separator_index + 1 : tag_end_index]
-    # Ensure that a separator from the domain is not considered as a tag separator
+    # Ensure that a separator from the domain is not considered as the tag separator
     tag_separator_index = tag_separator_index if "/" not in tag else -1
     if tag_separator_index >= 0:
         if not TAG_PATTERN.match(tag):
